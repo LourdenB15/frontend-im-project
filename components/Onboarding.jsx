@@ -1,7 +1,10 @@
+// components/Onboarding.jsx
+
 "use client";
 import { useState, useEffect } from "react";
 import axios from "axios";
-import { useRouter } from "next/navigation";
+import { useRouter } from "next/navigation"; // Make sure useRouter is imported
+import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -10,47 +13,72 @@ import { Label } from "@/components/ui/label";
 const API = process.env.NEXT_PUBLIC_API_URL;
 
 const Onboarding = () => {
-    const router = useRouter();
+    const router = useRouter(); // Initialize the router
+    const { data: session, status, update } = useSession();
     const [formData, setFormData] = useState({ first_name: "", last_name: "", age: "" });
     const [loading, setLoading] = useState(false);
+    const [isNavigating, setIsNavigating] = useState(false);
     const [error, setError] = useState("");
 
-    // Fetch existing profile data to pre-fill the form
     useEffect(() => {
-        const fetchProfile = async () => {
-             try {
-                const res = await axios.get(`${API}/api/user/profile`, { withCredentials: true });
+        if (status === "authenticated" && session.backendToken) {
+            axios.get(`${API}/api/user/profile`, {
+                headers: { Authorization: `Bearer ${session.backendToken}` }
+            }).then(res => {
                 setFormData({
                     first_name: res.data.first_name || "",
                     last_name: res.data.last_name || "",
                     age: res.data.age || ""
                 });
-            } catch (err) {
-                console.error("Failed to fetch profile for onboarding");
-            }
-        };
-        fetchProfile();
-    }, []);
+            }).catch(err => console.error("Failed to fetch profile for onboarding"));
+        }
+    }, [session, status]);
 
+    // This effect now includes the critical cache refresh step
+    useEffect(() => {
+        if (status === "authenticated" && session?.onboarding_complete && !isNavigating) {
+            setIsNavigating(true);
+            
+            // 1. CRITICAL: Purge the server-side router cache.
+            // This ensures that when we navigate next, the server is forced
+            // to re-run the logic in `app/page.jsx` instead of using a stale result.
+            router.refresh();
+
+            // 2. Replace the current URL. Using `replace` is slightly better
+            // here as it prevents the onboarding page from being in the browser history.
+            router.replace('/');
+        }
+    }, [session, status, isNavigating, router]); // Add `router` to the dependency array
     const onChange = (e) => {
         setFormData({ ...formData, [e.target.name]: e.target.value });
     };
-
     const handleSubmit = async (e) => {
         e.preventDefault();
+        if (!session?.backendToken) {
+            setError("Authentication session not found. Please log in again.");
+            return;
+        }
         setLoading(true);
         setError("");
         try {
-            await axios.put(`${API}/api/user/onboard`, formData, { withCredentials: true });
-            router.refresh();
-            router.push("/");
+            await axios.put(`${API}/api/user/onboard`, formData, {
+                headers: { Authorization: `Bearer ${session.backendToken}` }
+            });
+            // This simply triggers the useEffect hook to run once the session is updated.
+            await update();
         } catch (err) {
             setError(err.response?.data?.message || "An error occurred.");
-        } finally {
             setLoading(false);
         }
     };
-
+    
+    // ... (rest of the component is the same)
+    if (status === "loading") {
+        return <div className="text-center p-8">Loading session...</div>;
+    }
+    if (loading) {
+        return <div className="text-center p-8">Saving and redirecting...</div>;
+    }
     return (
         <Card className="w-full max-w-md">
             <form onSubmit={handleSubmit}>

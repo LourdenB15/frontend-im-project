@@ -1,20 +1,29 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import axios from "axios";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { signIn } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-const API = process.env.NEXT_PUBLIC_API_URL;
+// const API = process.env.NEXT_PUBLIC_API_URL;
 
 const Login = () => {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [formData, setFormData] = useState({ email: "", password: "" });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+   useEffect(() => {
+    const oauthError = searchParams.get("error");
+    if (oauthError) {
+      setError(decodeURIComponent(oauthError));
+    }
+  }, [searchParams]);
 
   const onChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -25,15 +34,25 @@ const Login = () => {
     setLoading(true);
     setError("");
     try {
-      const response = await axios.post(`${API}/api/auth/login`, formData, {
-        withCredentials: true,
+      // const response = await axios.post(`${API}/api/auth/login`, formData, {
+      //   withCredentials: true,
+      // });
+      const result = await signIn("credentials", {
+        ...formData,
+        redirect: false, // Tell NextAuth not to redirect automatically
       });
-
-      if (response.data.onboarding_complete) {
-        router.push("/");
-      } else {
-        router.push("/onboard");
+      if (result.error) {
+        // Handle login errors returned from the authorize function
+        setError(result.error);
+        setLoading(false);
+        return;
       }
+      // window.location.href = response.data.onboarding_complete ? "/" : "/onboard";
+      // if (response.data.onboarding_complete) {
+        router.push("/");
+      // } else {
+      //   router.push("/onboard");
+      // }
     } catch (err) {
       setError(err.response?.data?.message || "An error occurred during login.");
     } finally {
@@ -75,6 +94,14 @@ const Login = () => {
           <CardFooter className="flex-col gap-4">
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? "Signing in..." : "Sign in"}
+            </Button>
+             <Button 
+                variant="outline" 
+                className="w-full" 
+                onClick={() => signIn("github", { callbackUrl: "/" })}
+                type="button"
+            >
+                Sign in with GitHub
             </Button>
             <hr className="w-full"/>
              <Link href="/register" passHref className="w-full">

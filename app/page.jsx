@@ -1,57 +1,69 @@
-import { cookies } from "next/headers";
+// app/page.jsx (with debugging)
+
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import Logout from "@/components/Logout";
 import { Button } from "@/components/ui/button";
+import { getServerSession } from "next-auth/next";
+import { authOptions } from "./api/auth/[...nextauth]/route";
+import axios from "axios";
 
 const API = process.env.NEXT_PUBLIC_API_URL;
 
-// This function fetches the user's profile on the server side.
-// It needs the token to make an authenticated request.
+// Modified getProfile to log errors
 const getProfile = async (token) => {
+  if (!token) {
+    console.error("DEBUG: getProfile failed because token is missing.");
+    return null;
+  }
   try {
-    const res = await fetch(`${API}/api/user/profile`, {
+    const res = await axios.get(`${API}/api/user/profile`, {
       headers: {
         Cookie: `token=${token}`,
+        Authorization: `Bearer ${token}`, // Send both for good measure
       },
-      cache: 'no-store', // Ensures fresh data is fetched on every request
     });
-
-    if (!res.ok) {
-      // If the response is not OK (e.g., 401 Unauthorized), the token is invalid.
-      return null;
-    }
-
-    return res.json();
+    console.log("DEBUG: getProfile successful.");
+    return res.data;
   } catch (error) {
-    console.error("Failed to fetch profile:", error);
+    console.error("DEBUG: getProfile FAILED. Axios error:", error.response?.data || error.message);
     return null;
   }
 };
 
 const HomePage = async () => {
-  // 1. Get the token from the browser's cookies.
-  const cookieStore = await cookies();
-  const token = await cookieStore.get("token")?.value;
+  console.log("\n--- DEBUG: Homepage Server Component Execution ---");
 
-  // 2. If no token is found, redirect to the login page immediately.
-  if (!token) {
+  const session = await getServerSession(authOptions);
+
+  // Check #1: Is the session object itself valid?
+  if (!session) {
+    console.error("DEBUG: Redirecting to /login because session is NULL or undefined.");
     redirect("/login");
   }
 
-  // 3. Fetch the user's profile using the token.
-  const user = await getProfile(token);
+  // Log the contents of the session object
+  console.log("DEBUG: Session object found:", JSON.stringify(session, null, 2));
 
-  // 4. If the profile fetch fails (invalid token), redirect to login.
-  if (!user) {
-    redirect("/login");
-  }
-
-  if (!user.onboarding_complete) {
+  // Check #2: Is the onboarding flag correct in the session?
+  if (!session.onboarding_complete) {
+    console.log("DEBUG: Redirecting to /onboard because session.onboarding_complete is false.");
     redirect("/onboard");
   }
+
+  console.log("DEBUG: Onboarding check passed. Now attempting to fetch profile...");
+
+  // Check #3: Does the getProfile call succeed?
+  const user = await getProfile(session.backendToken);
+
+  if (!user) {
+    console.error("DEBUG: Redirecting to /login because getProfile(token) returned NULL.");
+    redirect("/login");
+  }
+
+  console.log("DEBUG: All checks passed. Rendering homepage for user:", user.first_name);
+
   return (
-    
     <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50">
       <div className="p-8 bg-white shadow-md rounded-lg text-center">
         <h1 className="text-3xl font-bold mb-2">
@@ -68,7 +80,6 @@ const HomePage = async () => {
         </div>
       </div>
     </div>
-    
   );
 };
 

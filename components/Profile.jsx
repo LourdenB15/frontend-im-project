@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import axios from "axios";
 import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -11,6 +12,7 @@ const API = process.env.NEXT_PUBLIC_API_URL;
 
 const Profile = () => {
     const router = useRouter();
+    const { data: session, status } = useSession(); 
     const [profileData, setProfileData] = useState({ first_name: "", last_name: "", age: "", email: "" });
     const [passwordData, setPasswordData] = useState({ currentPassword: "", newPassword: "" });
     const [loading, setLoading] = useState(true);
@@ -22,28 +24,54 @@ const Profile = () => {
 
     useEffect(() => {
         const fetchProfile = async () => {
-            try {
-                const res = await axios.get(`${API}/api/user/profile`, { withCredentials: true });
-                setProfileData(res.data);
-            } catch (err) {
-                setProfileError("Failed to fetch profile. Redirecting to login...");
-                setTimeout(() => router.push("/login"), 2000);
-            } finally {
-                setLoading(false);
+
+            if (status === "authenticated" && session.backendToken){
+                 try{
+                    const res = await axios.get(`${API}/api/user/profile`, { headers: {
+                             // 4. Send token in Authorization header
+                            Authorization: `Bearer ${session.backendToken}`
+                        } });
+                        setProfileData(res.data);
+                 } catch (err) {
+                    setProfileError("Failed to fetch profile. Redirecting to login...");
+                    setTimeout(() => router.push("/login"), 2000);
+                } finally {
+                    setLoading(false);
+                }
             }
+            // try {
+            //     const res = await axios.get(`${API}/api/user/profile`, { withCredentials: true });
+            //     setProfileData(res.data);
+            // } catch (err) {
+            //     setProfileError("Failed to fetch profile. Redirecting to login...");
+            //     setTimeout(() => router.push("/login"), 2000);
+            // } finally {
+            //     setLoading(false);
+            // }
         };
+        if (status === "unauthenticated") {
+             router.push("/login");
+        }
         fetchProfile();
-    }, [router]);
+    }, [router, session, status]);
 
     const handleProfileChange = (e) => setProfileData({ ...profileData, [e.target.name]: e.target.value });
     const handlePasswordChange = (e) => setPasswordData({ ...passwordData, [e.target.name]: e.target.value });
 
     const handleUpdateProfile = async (e) => {
         e.preventDefault();
+        if (!session?.backendToken) return;
         setProfileError("");
         setProfileSuccess("");
         try {
-            const res = await axios.put(`${API}/api/user/profile`, profileData, { withCredentials: true });
+            // const res = await axios.put(`${API}/api/user/profile`, profileData, { withCredentials: true });
+            const res = await axios.put(`${API}/api/user/profile`, profileData, {
+                headers: {
+                    // 6. Send token for profile update
+                    Authorization: `Bearer ${session.backendToken}`
+                }
+            });
+
             setProfileSuccess(res.data.message);
         } catch (err) {
             setProfileError(err.response?.data?.message || "Failed to update profile.");
@@ -52,10 +80,17 @@ const Profile = () => {
 
     const handleChangePassword = async (e) => {
         e.preventDefault();
+        if (!session?.backendToken) return;
         setPasswordError("");
         setPasswordSuccess("");
         try {
-            const res = await axios.post(`${API}/api/auth/change-password`, passwordData, { withCredentials: true });
+            // const res = await axios.post(`${API}/api/auth/change-password`, passwordData, { withCredentials: true });
+            const res = await axios.post(`${API}/api/auth/change-password`, passwordData, {
+                 headers: {
+                    // 7. Send token for password change
+                    Authorization: `Bearer ${session.backendToken}`
+                }
+            });
             setPasswordSuccess(res.data.message);
             setPasswordData({ currentPassword: "", newPassword: "" }); // Clear fields
         } catch (err) {
@@ -63,7 +98,10 @@ const Profile = () => {
         }
     };
 
-    if (loading) return <div className="text-center">Loading profile...</div>;
+    // if (loading) return <div className="text-center">Loading profile...</div>;
+      if (status === "loading" || loading) {
+        return <div className="text-center p-8">Loading profile...</div>;
+    }
 
     return (
         <div className="max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-8">
